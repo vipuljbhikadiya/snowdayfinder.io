@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snow Day Probability Calculator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f8ff;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .result {
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Snow Day Probability Calculator</h1>
+        <form id="snowDayForm">
+            <div>
+                <label for="zipCode">ZIP Code:</label>
+                <input type="text" id="zipCode" required pattern="[0-9]{5}">
+            </div>
+            <div>
+                <label for="previousSnowDays">Number of Snow Days Last Year:</label>
+                <input type="number" id="previousSnowDays" required min="0" max="50">
+            </div>
+            <button type="submit">Calculate Probability</button>
+        </form>
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        const API_KEY = 'a566780b5f734e56b08161831243009';
+        
+        async function fetchWeatherForecast(zipCode) {
+            try {
+                const response = await fetch(
+                    `https://api.weatherapi.com/v1/forecast.json?key=${API_KEY}&q=${zipCode}&days=7&aqi=no`
+                );
+                if (!response.ok) {
+                    throw new Error('Invalid ZIP code or API error');
+                }
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Error fetching weather data:', error);
+                alert('Error: Could not find weather data for this ZIP code');
+                return null;
+            }
+        }
+
+        function calculateSnowProbability(forecast, previousSnowDays) {
+            const predictions = [];
+            
+            // Analyze next 3 days
+            for (let i = 0; i < 3; i++) {
+                const day = forecast.forecast.forecastday[i];
+                let probability = 0;
+                
+                // Historical Factor (0-15%)
+                const historicalFactor = Math.min(previousSnowDays * 1.5, 15);
+                
+                // Temperature Factors (0-30%)
+                const avgTemp_c = day.day.avgtemp_c;
+                const minTemp_c = day.day.mintemp_c;
+                let tempFactor = 0;
+                
+                if (minTemp_c <= -5) {
+                    tempFactor = 30;
+                } else if (minTemp_c <= 0) {
+                    tempFactor = 25;
+                } else if (minTemp_c <= 2) {
+                    tempFactor = 20;
+                } else if (avgTemp_c <= 4) {
+                    tempFactor = 15;
+                }
+                
+                // Snow Specific Factors (0-25%)
+                const willSnow = day.day.daily_will_it_snow;
+                const snowChance = day.day.daily_chance_of_snow;
+                const totalSnow_cm = day.day.totalsnow_cm;
+                
+                let snowFactor = 0;
+                if (willSnow) {
+                    snowFactor += 10;
+                    snowFactor += Math.min(snowChance / 4, 10); // Up to 10% based on snow chance
+                    
+                    // Additional factor based on snow amount
+                    if (totalSnow_cm > 10) {
+                        snowFactor += 5;
+                    } else if (totalSnow_cm > 5) {
+                        snowFactor += 3;
+                    }
+                }
+                
+                // Precipitation and Rain Factors (0-15%)
+                const rainChance = day.day.daily_chance_of_rain;
+                const precip_mm = day.day.totalprecip_mm;
+                
+                let precipFactor = 0;
+                if (minTemp_c <= 2) { // Only count precipitation if it's cold enough
+                    if (precip_mm > 10) {
+                        precipFactor = 15;
+                    } else if (precip_mm > 5) {
+                        precipFactor = 10;
+                    } else if (precip_mm > 2) {
+                        precipFactor = 5;
+                    }
+                }
+                
+                // Visibility Factor (0-10%)
+                const visibility = day.day.avgvis_km;
+                let visFactor = 0;
+                
+                if (visibility < 2) {
+                    visFactor = 10;
+                } else if (visibility < 5) {
+                    visFactor = 7;
+                } else if (visibility < 8) {
+                    visFactor = 5;
+                }
+                
+                // Additional Risk Factors (0-5%)
+                let riskFactor = 0;
+                if (i === 0) { // Higher confidence for next day
+                    riskFactor = 5;
+                } else if (i === 1) {
+                    riskFactor = 3;
+                } else {
+                    riskFactor = 1;
+                }
+                
+                // Calculate final probability
+                probability = historicalFactor + tempFactor + snowFactor + precipFactor + visFactor + riskFactor;
+                
+                // Adjust probability based on conditions
+                if (willSnow && snowChance > 70 && minTemp_c < 0) {
+                    probability *= 1.2; // 20% boost for ideal conditions
+                }
+                
+                // Cap at 100%
+                probability = Math.min(Math.round(probability), 100);
+                
+                // Add interpretation
+                let status = '';
+                if (probability < 25) {
+                    status = 'Very Unlikely';
+                } else if (probability < 50) {
+                    status = 'Possible Delay';
+                } else if (probability < 75) {
+                    status = 'Likely Delay or Cancellation';
+                } else {
+                    status = 'Very Likely Cancellation';
+                }
+                
+                predictions.push({
+                    day: i + 1,
+                    date: day.date,
+                    probability,
+                    status,
+                    details: {
+                        temperature: avgTemp_c,
+                        snowChance,
+                        precipitation: precip_mm,
+                        visibility
+                    }
+                });
+            }
+            
+            return predictions;
+        }
+
+        // Update the event listener to handle multiple days
+        document.getElementById('snowDayForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const zipCode = document.getElementById('zipCode').value;
+            const previousSnowDays = parseInt(document.getElementById('previousSnowDays').value);
+            
+            const forecast = await fetchWeatherForecast(zipCode);
+            if (forecast) {
+                const predictions = calculateSnowProbability(forecast, previousSnowDays);
+                const resultDiv = document.getElementById('result');
+                resultDiv.innerHTML = predictions.map(pred => `
+                    <div class="day-prediction" style="margin-bottom: 15px; padding: 10px; border-radius: 5px; 
+                        background-color: ${pred.probability > 50 ? '#e3f2fd' : '#fff3e0'}">
+                        <h3>Day ${pred.day} (${pred.date})</h3>
+                        <p>Snow Day Probability: ${pred.probability}%</p>
+                        <p>Status: ${pred.status}</p>
+                        <details>
+                            <summary>Weather Details</summary>
+                            <p>Temperature: ${pred.details.temperature}°C</p>
+                            <p>Snow Chance: ${pred.details.snowChance}%</p>
+                            <p>Precipitation: ${pred.details.precipitation}mm</p>
+                            <p>Visibility: ${pred.details.visibility}km</p>
+                        </details>
+                    </div>
+                `).join('');
+            }
+        });
+    </script>
+</div>
+</body>
+</html>

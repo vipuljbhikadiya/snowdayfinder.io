@@ -11,23 +11,25 @@
     <script type="text/javascript">
         const API_KEY = 'a566780b5f734e56b08161831243009';
         
-        async function fetchWeatherForecast(location) {
+        async function fetchWeatherForecast(zipCode) {
             try {
                 const response = await fetch(
-                    `https://api.weatherapi.com/v1/forecast.json?key=${API_KEY}&q=${location}&days=7&aqi=no`
+                    `https://api.weatherapi.com/v1/forecast.json?key=${API_KEY}&q=${zipCode}&days=7&aqi=no`
                 );
+                if (!response.ok) {
+                    throw new Error('Invalid ZIP code or API error');
+                }
                 const data = await response.json();
-
-                console.log(data);
                 return data;
             } catch (error) {
                 console.error('Error fetching weather data:', error);
+                alert('Error: Could not find weather data for this ZIP code');
                 return null;
             }
         }
 
-        async function displaySnowDayProbabilities(location) {
-            const weatherData = await fetchWeatherForecast(location);
+        async function displaySnowDayProbabilities(zipCode) {
+            const weatherData = await fetchWeatherForecast(zipCode);
             if (!weatherData) return;
 
             const priorSnowDays = parseInt(document.getElementById('prior-snow-days-input').value) || 0;
@@ -35,21 +37,22 @@
             resultDiv.id = 'snow-day-results';
 
             weatherData.forecast.forecastday.forEach(day => {
+             
                 const forecast = {
                     daily_will_it_snow: day.day.daily_will_it_snow,
                     daily_chance_of_snow: day.day.daily_chance_of_snow,
                     daily_chance_of_rain: day.day.daily_chance_of_rain,
                     totalsnow_cm: day.day.totalsnow_cm,
-                    mintemp_f: day.day.mintemp_f,
-                    avgtemp_f: day.day.avgtemp_f,
-                    avgvis_miles: day.day.avgvis_miles
+                    mintemp_c: day.day.mintemp_c,
+                    avgtemp_c: day.day.avgtemp_c,
+                    avgvis_km: day.day.avgvis_km
                 };
 
                 const date = new Date(day.date);
                 const snowDayPercentage = calculateSnowDayProbabilityPercentage(
                     forecast,
                     priorSnowDays,
-                    exampleWeights
+                    weights
                 );
 
                 const dayResult = document.createElement('p');
@@ -57,7 +60,6 @@
                 resultDiv.appendChild(dayResult);
             });
 
-            // Remove existing results if any
             const existingResults = document.getElementById('snow-day-results');
             if (existingResults) {
                 existingResults.remove();
@@ -65,13 +67,14 @@
             document.body.appendChild(resultDiv);
         }
 
-        // Add location input and button
-        const locationInput = document.createElement('input');
-        locationInput.type = 'text';
-        locationInput.placeholder = 'Enter location (e.g., London)';
-        locationInput.id = 'location-input';
+        // Update location input to ZIP code
+        const zipCodeInput = document.createElement('input');
+        zipCodeInput.type = 'text';
+        zipCodeInput.placeholder = 'Enter ZIP code (e.g., 10001)';
+        zipCodeInput.id = 'zip-code-input';
+        zipCodeInput.pattern = '[0-9]{5}';  // Enforce 5-digit ZIP format
+        zipCodeInput.maxLength = 5;
         
-        // Add prior snow days input
         const priorSnowDaysInput = document.createElement('input');
         priorSnowDaysInput.type = 'number';
         priorSnowDaysInput.min = '0';
@@ -80,10 +83,17 @@
         
         const checkButton = document.createElement('button');
         checkButton.textContent = 'Check Snow Probability';
-        checkButton.onclick = () => displaySnowDayProbabilities(locationInput.value);
+        checkButton.onclick = () => {
+            const zipCode = zipCodeInput.value.trim();
+            if (/^\d{5}$/.test(zipCode)) {
+                displaySnowDayProbabilities(zipCode);
+            } else {
+                alert('Please enter a valid 5-digit ZIP code');
+            }
+        };
 
-        document.body.insertBefore(locationInput, document.body.firstChild);
-        document.body.insertBefore(priorSnowDaysInput, locationInput.nextSibling);
+        document.body.insertBefore(zipCodeInput, document.body.firstChild);
+        document.body.insertBefore(priorSnowDaysInput, zipCodeInput.nextSibling);
         document.body.insertBefore(checkButton, priorSnowDaysInput.nextSibling);
 
         /**
@@ -95,9 +105,9 @@
      *                              daily_chance_of_snow (int: 0-100)
      *                              daily_chance_of_rain (int: 0-100)
      *                              totalsnow_cm (decimal)
-     *                              mintemp_f (decimal)
-     *                              avgtemp_f (decimal)
-     *                              avgvis_miles (decimal)
+     *                              mintemp_c (decimal)
+     *                              avgtemp_c (decimal)
+     *                              avgvis_km (decimal)
      *
      * @param {number} priorSnowDays - Number of prior snow days entered by the user.
      *
@@ -111,6 +121,7 @@
      *                              zeta: number    // weight for prior snow days factor
      *                              eta: number     // weight for rain chance factor
      *                              theta: number   // weight for warmth factor
+     *                              warm_threshold_c: number // warm temperature threshold in Celsius
      *                           }
      *
      * @return {number} Returns the probability as a percentage (0 to 100).
@@ -125,71 +136,74 @@
                     daily_chance_of_snow,
                     daily_chance_of_rain,
                     totalsnow_cm,
-                    mintemp_f,
-                    avgtemp_f,
-                    avgvis_miles
+                    mintemp_c,
+                    avgtemp_c,
+                    avgvis_km
                 } = forecast;
 
                 const {
                     alpha = 1.0,
                     beta = 0.8,
-                    gamma = 0.2,
+                    gamma = 0.3,
                     delta = 1.0,
                     epsilon = 1.0,
                     zeta = 0.5,
                     eta = 0.3,
-                    theta = 0.2
+                    theta = 0.5,
+                    warm_threshold_c = 5
                 } = weights || {};
 
-                // Calculate individual factor contributions to the score:
+                // Immediate zero conditions
+                if (daily_will_it_snow === 0 && daily_chance_of_snow === 0) {
+                    return 0;
+                }
+
+                if (totalsnow_cm === 0 && daily_chance_of_snow <= 5) {
+                    return 0;
+                }
+
+                if (avgtemp_c > warm_threshold_c && daily_chance_of_snow < 50) {
+                    return 0;
+                }
+
                 const snowBinaryFactor = alpha * daily_will_it_snow;
                 const snowChanceFactor = beta * (daily_chance_of_snow / 100);
                 const snowAmountFactor = gamma * totalsnow_cm;
-                const tempFactor = delta * Math.max(0, (32 - mintemp_f) / 32);
-                const visFactor = epsilon * (1 - (avgvis_miles / 10));
+                const tempBelowFreezingFactor = mintemp_c < 0 ? delta * Math.min(1, Math.abs(mintemp_c) / 10) : 0;
+                const visFactor = epsilon * (1 - Math.min(1, avgvis_km / 10));
                 const priorFactor = zeta * (priorSnowDays / 5);
                 const rainFactor = -eta * (daily_chance_of_rain / 100);
-                const warmthFactor = -theta * (avgtemp_f / 50);
+                const warmthFactor = avgtemp_c > 0 ? -theta * (avgtemp_c / 10) : 0;
 
-                // Sum all factors to get a raw score (Z)
                 const Z = snowBinaryFactor
                     + snowChanceFactor
                     + snowAmountFactor
-                    + tempFactor
+                    + tempBelowFreezingFactor
                     + visFactor
                     + priorFactor
                     + rainFactor
                     + warmthFactor;
 
-                // Convert the score Z into a probability using the logistic function
                 const probability = 1 / (1 + Math.exp(-Z));
-
-                // Convert the probability (0-1) into a percentage (0-100%)
                 const percentage = probability * 100;
+
+                if (avgtemp_c > warm_threshold_c && daily_chance_of_snow < 20 && totalsnow_cm < 1) {
+                    return 0;
+                }
 
                 return percentage;
             }
 
-            // Example usage:
-            const exampleForecast = {
-                daily_will_it_snow: 1,
-                daily_chance_of_snow: 80,
-                daily_chance_of_rain: 20,
-                totalsnow_cm: 5,
-                mintemp_f: 20,
-                avgtemp_f: 30,
-                avgvis_miles: 6
-            };
-
-            const exampleWeights = {
+            const weights = {
                 alpha: 1.0,
                 beta: 0.8,
-                gamma: 0.2,
+                gamma: 0.3,
                 delta: 1.0,
                 epsilon: 1.0,
                 zeta: 0.5,
                 eta: 0.3,
-                theta: 0.2
+                theta: 0.5,
+                warm_threshold_c: 5
             };
     </script>
 </body>
