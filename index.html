@@ -3,11 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Snow Day Predictor</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f8ff;
+        }
+
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.5rem;
+            margin-bottom: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        #snow-day-results {
+            margin-top: 2rem;
+        }
+
+        #snow-day-results p {
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            margin: 0;
+        }
+
+        #snow-day-results p:last-child {
+            border-bottom: none;
+        }
+    </style>
 </head>
 <body>
-    <h1>Snow Day Probability</h1>
-    <div id="snow-day-results"></div>
+    <div class="container">
+        <h1>Snow Day Predictor</h1>
+        <div class="input-group">
+            <input type="text" id="zip-code-input" placeholder="Enter ZIP code (e.g., 10001)" pattern="[0-9]{5}" maxlength="5">
+            <input type="number" id="prior-snow-days-input" min="0" placeholder="Number of prior snow days">
+            <button id="check-button">Check Snow Probability</button>
+        </div>
+        <div id="snow-day-results"></div>
+    </div>
+
     <script type="text/javascript">
         const API_KEY = 'a566780b5f734e56b08161831243009';
         
@@ -67,34 +140,14 @@
             document.body.appendChild(resultDiv);
         }
 
-        // Update location input to ZIP code
-        const zipCodeInput = document.createElement('input');
-        zipCodeInput.type = 'text';
-        zipCodeInput.placeholder = 'Enter ZIP code (e.g., 10001)';
-        zipCodeInput.id = 'zip-code-input';
-        zipCodeInput.pattern = '[0-9]{5}';  // Enforce 5-digit ZIP format
-        zipCodeInput.maxLength = 5;
-        
-        const priorSnowDaysInput = document.createElement('input');
-        priorSnowDaysInput.type = 'number';
-        priorSnowDaysInput.min = '0';
-        priorSnowDaysInput.placeholder = 'Number of prior snow days';
-        priorSnowDaysInput.id = 'prior-snow-days-input';
-        
-        const checkButton = document.createElement('button');
-        checkButton.textContent = 'Check Snow Probability';
-        checkButton.onclick = () => {
-            const zipCode = zipCodeInput.value.trim();
+        document.getElementById('check-button').onclick = () => {
+            const zipCode = document.getElementById('zip-code-input').value.trim();
             if (/^\d{5}$/.test(zipCode)) {
                 displaySnowDayProbabilities(zipCode);
             } else {
                 alert('Please enter a valid 5-digit ZIP code');
             }
         };
-
-        document.body.insertBefore(zipCodeInput, document.body.firstChild);
-        document.body.insertBefore(priorSnowDaysInput, zipCodeInput.nextSibling);
-        document.body.insertBefore(checkButton, priorSnowDaysInput.nextSibling);
 
         /**
      * Calculates the probability of a snow day based on various weather and historical factors and returns it as a percentage.
